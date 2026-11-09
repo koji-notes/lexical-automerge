@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createEditor } from "lexical";
-import { bindPresence, PEER_PRESENCE_COMMAND } from "../src/presence";
+import { $createParagraphNode, $createRangeSelection, $createTextNode, $getRoot, $setSelection, createEditor } from "lexical";
+import { bindPresence, PEER_PRESENCE_COMMAND, selectionPresence } from "../src/presence";
+import { serializeWithStableBlockIds } from "../src/reconciler";
 
 describe("presence", () => {
   it("dispatches received presence without rebroadcasting", () => {
@@ -39,5 +40,22 @@ describe("presence", () => {
     expect(command).toHaveBeenCalled();
     expect(handle.broadcast).not.toHaveBeenCalled();
     dispose();
+  });
+
+  it("reports the persisted block id for the current selection", () => {
+    const editor = createEditor({ namespace: "presence-selection", onError: (error) => { throw error; } });
+    editor.update(() => {
+      const paragraph = $createParagraphNode();
+      const text = $createTextNode("hello");
+      paragraph.append(text);
+      $getRoot().append(paragraph);
+      const selection = $createRangeSelection();
+      selection.anchor.set(text.getKey(), 1, "text");
+      selection.focus.set(text.getKey(), 1, "text");
+      $setSelection(selection);
+    }, { discrete: true });
+    const state = serializeWithStableBlockIds(editor);
+    const blockId = (state.root.children[0] as unknown as { blockId: string }).blockId;
+    expect(selectionPresence(editor, "peer-1").anchorBlockId).toBe(blockId);
   });
 });

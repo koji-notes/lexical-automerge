@@ -12,9 +12,7 @@ export function AutoMergePlugin({ handle, editor: suppliedEditor, ...options }: 
   const [composerEditor] = useLexicalComposerContext();
   const editor = suppliedEditor ?? composerEditor;
   useEffect(() => {
-    // @lexical/react can resolve its own compatible Lexical copy when a host
-    // application has a hoisted dependency. The runtime API is identical.
-    const binding = bindLexicalToAutomerge(editor as import("lexical").LexicalEditor, handle, options);
+    const binding = bindLexicalToAutomerge(editor, handle, options);
     return () => binding.dispose();
   }, [editor, handle, options.preserveInitialState, options.remoteUpdateTag]);
   return null;

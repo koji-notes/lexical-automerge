@@ -1,6 +1,7 @@
 import type {
   EditorConfig,
   LexicalNode,
+  LexicalUpdateJSON,
   NodeKey,
   SerializedElementNode,
   Spread,
@@ -44,10 +45,17 @@ export class AutomergeBlockNode extends ElementNode {
       blockId: this.getBlockId(),
     };
   }
+  updateFromJSON(
+    serialized: LexicalUpdateJSON<SerializedAutomergeBlockNode>,
+  ): this {
+    const node = super.updateFromJSON(serialized);
+    if (serialized.blockId) node.setBlockId(serialized.blockId);
+    return node;
+  }
   static importJSON(
     serialized: SerializedAutomergeBlockNode,
   ): AutomergeBlockNode {
-    return new AutomergeBlockNode(serialized.blockId);
+    return $createAutomergeBlockNode(serialized.blockId).updateFromJSON(serialized);
   }
 }
 export function $createAutomergeBlockNode(blockId: string): AutomergeBlockNode {

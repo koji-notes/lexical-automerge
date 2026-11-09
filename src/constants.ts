@@ -2,6 +2,10 @@ import { createCommand } from "lexical";
 
 export const AUTOMERGE_SYNC_TAG = "automerge-sync";
 export const BLOCK_ID_FIELD = "blockId";
+
+export function createBlockId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 export const PEER_PRESENCE_COMMAND = createCommand<PeerPresence>("peer-presence");
 
 export interface PeerPresence {

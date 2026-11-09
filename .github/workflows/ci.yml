@@ -10,6 +10,9 @@ jobs:
   validate:
     name: Build, Lint & Test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [18, 20, 22]
 
     steps:
       - name: Checkout Code
@@ -18,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: "npm"
 
       - name: Install Dependencies
@@ -32,3 +35,6 @@ jobs:
 
       - name: Build Distribution Bundle
         run: npm run build
+
+      - name: Validate npm package contents
+        run: npm run pack:check

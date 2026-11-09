@@ -1,6 +1,6 @@
 import { defineConfig } from "tsup";
 export default defineConfig({
-  entry: ["src/index.ts", "src/react/auto-merge-plugin.tsx", "src/react/AutomergePlugin.tsx"],
+  entry: ["src/index.ts", "src/presence.ts", "src/testing.ts", "src/react/auto-merge-plugin.tsx", "src/react/AutomergePlugin.tsx"],
   format: ["esm", "cjs"],
   dts: true,
   clean: true,

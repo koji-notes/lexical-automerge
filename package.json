@@ -1,11 +1,15 @@
 {
-  "name": "@koji/lexical-automerge",
-  "version": "0.1.0",
+  "name": "@koji-api/lexical-automerge",
+  "version": "1.0.0",
   "description": "A small, type-safe Lexical binding for Automerge Repo documents.",
+  "sideEffects": false,
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -21,41 +25,69 @@
       "types": "./dist/react/AutomergePlugin.d.ts",
       "import": "./dist/react/AutomergePlugin.js",
       "require": "./dist/react/AutomergePlugin.cjs"
-    }
+    },
+    "./presence": {
+      "types": "./dist/presence.d.ts",
+      "import": "./dist/presence.js",
+      "require": "./dist/presence.cjs"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "require": "./dist/testing.cjs"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "pack:check": "npm run build && npm pack --dry-run"
   },
   "devDependencies": {
     "@automerge/automerge": "^2.2.9",
     "@automerge/automerge-repo": "^1.2.1",
-    "@lexical/headless": "^0.20.2",
+    "@lexical/headless": "^0.53.0",
+    "@lexical/react": "^0.53.0",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^4.7.0",
     "@vitest/coverage-v8": "^2.1.9",
     "jsdom": "^25.0.1",
-    "lexical": "^0.20.2",
+    "lexical": "^0.53.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "tsup": "^9.0.0",
     "typescript": "^5.9.3",
     "vite": "^5.4.21",
     "vitest": "^2.1.9"
   },
-  "dependencies": {
-    "@lexical/code": "^0.20.2",
-    "@lexical/react": "^0.20.2",
-    "@lexical/rich-text": "^0.20.2",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+  "peerDependencies": {
+    "@automerge/automerge": ">=2.2.0",
+    "@automerge/automerge-repo": ">=1.2.0",
+    "lexical": ">=0.53.0",
+    "@lexical/react": ">=0.53.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@lexical/react": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   }
 }

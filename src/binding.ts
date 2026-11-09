@@ -1,9 +1,6 @@
 import type { DocHandle } from "@automerge/automerge-repo";
-import type {
-  EditorState,
-  LexicalEditor,
-  SerializedEditorState,
-} from "lexical";
+import type { LexicalEditor, SerializedEditorState } from "lexical";
+import { AUTOMERGE_SYNC_TAG } from "./constants";
 import type {
   BindingOptions,
   LexicalAutomergeBinding,
@@ -13,19 +10,7 @@ import {
   reconcileEditorState,
   serializeWithStableBlockIds,
 } from "./reconciler";
-function stateToJSON(state: EditorState): SerializedEditorState {
-  return state.toJSON() as SerializedEditorState;
-}
-function cloneState(state: SerializedEditorState): SerializedEditorState {
-  return JSON.parse(JSON.stringify(state)) as SerializedEditorState;
-}
-function hasState(
-  value: LexicalAutomergeDocument | undefined,
-): value is LexicalAutomergeDocument {
-  return (
-    !!value?.editorState?.root && Array.isArray(value.editorState.root.children)
-  );
-}
+import { documentFromEditorState, editorStateFromDocument, migrateDocument, syncDocument } from "./persistence";
 
 export function bindLexicalToAutomerge(
   editor: LexicalEditor,
@@ -33,41 +18,48 @@ export function bindLexicalToAutomerge(
   options: BindingOptions = {},
 ): LexicalAutomergeBinding {
   let disposed = false;
-  const apply = (document: LexicalAutomergeDocument | undefined): void => {
-    if (disposed || !hasState(document)) return;
-    reconcileEditorState(editor, document.editorState);
+  const remoteTag = options.remoteUpdateTag ?? AUTOMERGE_SYNC_TAG;
+  const change = (operation: (doc: LexicalAutomergeDocument) => void): void => {
+    try {
+      handle.change(operation);
+    } catch (error) {
+      options.onError?.(error instanceof Error ? error : new Error(String(error)));
+    }
+  };
+  const apply = (document: unknown): void => {
+    if (disposed) return;
+    const migrated = migrateDocument(document);
+    if (!migrated) {
+      options.onError?.(new Error("Invalid Automerge document"));
+      return;
+    }
+    reconcileEditorState(editor, editorStateFromDocument(migrated), remoteTag);
+  };
+  const write = (increment: boolean): void => {
+    const next = documentFromEditorState(serializeWithStableBlockIds(editor));
+    change((doc) => {
+      if (!syncDocument(doc, next)) return;
+      if (increment) doc.revision = (doc.revision ?? 0) + 1;
+    });
   };
   const initial = handle.docSync();
-  if (hasState(initial)) apply(initial);
-  else if (!options.preserveInitialState) {
-    handle.change((doc) => {
-      doc.editorState = cloneState(serializeWithStableBlockIds(editor));
-      doc.revision = 1;
-    });
-  }
-  const unregisterEditor = editor.registerUpdateListener(
-    ({ editorState, tags }) => {
-      if (disposed || tags.has("automerge-sync")) return;
-      const serialized = serializeWithStableBlockIds(editor);
-      handle.change((doc) => {
-        doc.editorState = cloneState(serialized);
-        doc.revision = (doc.revision ?? 0) + 1;
-      });
-    },
-  );
-  const onChange = ({ doc }: { doc: LexicalAutomergeDocument }): void =>
+  if (initial) apply(initial);
+  else if (!options.preserveInitialState) write(false);
+  const unregisterEditor = editor.registerUpdateListener(({ tags }) => {
+    if (disposed || tags.has(remoteTag)) return;
+    write(true);
+  });
+  const onChange = ({ doc }: { doc: LexicalAutomergeDocument }): void => {
     apply(doc);
+    options.onChange?.(doc.revision);
+  };
   handle.on("change", onChange);
   return {
     editor,
     handle,
     flush() {
       if (disposed) return;
-      const serialized = serializeWithStableBlockIds(editor);
-      handle.change((doc) => {
-        doc.editorState = cloneState(serialized);
-        doc.revision = (doc.revision ?? 0) + 1;
-      });
+      write(true);
     },
     dispose() {
       if (disposed) return;
@@ -82,5 +74,5 @@ export const createLexicalAutomergeBinding = bindLexicalToAutomerge;
 export function createLexicalAutomergeDocument(
   editorState: SerializedEditorState,
 ): LexicalAutomergeDocument {
-  return { editorState, revision: 1 };
+  return documentFromEditorState(editorState);
 }

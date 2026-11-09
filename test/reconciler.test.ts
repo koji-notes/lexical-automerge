@@ -4,6 +4,7 @@ import {
   $createRangeSelection,
   $createTextNode,
   $isElementNode,
+  $isTextNode,
   $getSelection,
   $getRoot,
   $setSelection,
@@ -99,6 +100,36 @@ describe("in-place reconciliation", () => {
       const selection = $getSelection() as unknown as { anchor: { key: string; offset: number } };
       expect(selection.anchor.offset).toBe(2);
       expect(selection.anchor.key).toBe(key);
+    });
+  });
+
+  it("applies format, indent, and a changed child list", () => {
+    const value = editor();
+    const state = serializeWithStableBlockIds(value);
+    const first = state.root.children[0] as Record<string, unknown>;
+    const text = { type: "text", version: 1, text: "ab", detail: 0, format: 1, mode: "normal", style: "" };
+    reconcileEditorState(value, {
+      ...state,
+      root: {
+        ...state.root,
+        format: "justify",
+        indent: 1,
+        children: [
+          { ...first, format: "center", indent: 2, children: [text, { ...text, text: "c", format: 0 }] },
+          ...state.root.children.slice(1),
+        ],
+      } as never,
+    });
+    value.getEditorState().read(() => {
+      const root = $getRoot();
+      expect(root.getFormatType()).toBe("justify");
+      expect(root.getIndent()).toBe(1);
+      const paragraph = root.getFirstChild();
+      expect($isElementNode(paragraph) && paragraph.getFormatType()).toBe("center");
+      expect($isElementNode(paragraph) && paragraph.getIndent()).toBe(2);
+      expect(paragraph?.getTextContent()).toBe("abc");
+      const bold = $isElementNode(paragraph) ? paragraph.getFirstChild() : null;
+      expect($isTextNode(bold) && bold.hasFormat("bold")).toBe(true);
     });
   });
 });

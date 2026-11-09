@@ -1,19 +1,26 @@
 import type { DocHandle } from "@automerge/automerge-repo";
-import type { EditorState, LexicalEditor, SerializedEditorState } from "lexical";
+import type { EditorState, ElementFormatType, LexicalEditor, SerializedEditorState } from "lexical";
 
-/** The value persisted in an Automerge document. */
+export const DOCUMENT_SCHEMA_VERSION = 2;
+export interface LexicalBlockRecord {
+  type: string;
+  text: string;
+  attributes: Record<string, string | number | boolean | null>;
+  node: Record<string, unknown>;
+}
 export interface LexicalAutomergeDocument {
-  /** Lexical's stable JSON representation. */
-  editorState: SerializedEditorState;
-  /** Monotonically increasing local write counter (useful for diagnostics). */
+  schemaVersion: 2;
+  order: string[];
+  blocks: Record<string, LexicalBlockRecord>;
+  root: { direction: "ltr" | "rtl" | null; format: ElementFormatType; indent: number };
   revision: number;
 }
 
 export interface BindingOptions {
-  /** Do not replace the editor's initial state when the document is empty. */
   preserveInitialState?: boolean;
-  /** Tag applied to updates originating from Automerge. */
   remoteUpdateTag?: string;
+  onError?: (error: Error) => void;
+  onChange?: (revision: number) => void;
 }
 
 export interface LexicalAutomergeBinding {

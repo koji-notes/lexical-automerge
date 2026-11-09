@@ -1,7 +1,7 @@
-import type { ElementNode, LexicalEditor, LexicalNode, SerializedEditorState, SerializedLexicalNode } from "lexical";
-import { $createRangeSelection, $getNodeByKey, $getSelection, $getRoot, $setSelection, $isTextNode } from "lexical";
-import { AUTOMERGE_SYNC_TAG, BLOCK_ID_FIELD } from "./constants";
-import { surgicalSplice, spliceString } from "./diff";
+import type { ElementFormatType, ElementNode, LexicalEditor, LexicalNode, SerializedEditorState, SerializedLexicalNode } from "lexical";
+import { $createRangeSelection, $getNodeByKey, $getSelection, $getRoot, $isElementNode, $parseSerializedNode, $setSelection } from "lexical";
+import { AUTOMERGE_SYNC_TAG, BLOCK_ID_FIELD, createBlockId } from "./constants";
+import { surgicalSplice } from "./diff";
 
 const blockIdsByEditor = new WeakMap<LexicalEditor, Map<string, string>>();
 
@@ -14,15 +14,22 @@ function editorBlockIds(editor: LexicalEditor): Map<string, string> {
   return ids;
 }
 
-function uuid(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const ELEMENT_FORMATS = new Set<ElementFormatType>(["", "left", "start", "center", "right", "end", "justify"]);
+
+function elementFormat(value: string): ElementFormatType {
+  return ELEMENT_FORMATS.has(value as ElementFormatType) ? value as ElementFormatType : "";
+}
+
+function serializedChildren(node: SerializedLexicalNode): SerializedLexicalNode[] | null {
+  const children = (node as { children?: SerializedLexicalNode[] }).children;
+  return Array.isArray(children) ? children : null;
 }
 
 export function ensureStableBlockIds(state: SerializedEditorState): SerializedEditorState {
   const seen = new Set<string>();
   const children = state.root.children.map((child) => {
     const candidate = (child as Record<string, unknown>)[BLOCK_ID_FIELD];
-    const id = typeof candidate === "string" && candidate && !seen.has(candidate) ? candidate : uuid();
+    const id = typeof candidate === "string" && candidate && !seen.has(candidate) ? candidate : createBlockId();
     seen.add(id);
     return { ...(child as Record<string, unknown>), [BLOCK_ID_FIELD]: id };
   });
@@ -37,7 +44,7 @@ export function serializeWithStableBlockIds(editor: LexicalEditor): SerializedEd
     $getRoot().getChildren().forEach((node, index) => {
       const current = ids.get(node.getKey());
       const candidate = (serialized.root.children[index] as Record<string, unknown>)[BLOCK_ID_FIELD];
-      ids.set(node.getKey(), typeof candidate === "string" && candidate ? candidate : current ?? uuid());
+      ids.set(node.getKey(), typeof candidate === "string" && candidate ? candidate : current ?? createBlockId());
       (serialized.root.children[index] as Record<string, unknown>)[BLOCK_ID_FIELD] = ids.get(node.getKey());
     });
   });
@@ -65,31 +72,26 @@ function snapshotSelection(editor: LexicalEditor): SelectionSnapshot | null {
   return anchor && focus ? { anchor, focus, backward: range.isBackward?.() } : null;
 }
 
-function nodeForSerialized(editor: LexicalEditor, serialized: SerializedLexicalNode): LexicalNode {
-  const registered = (editor as unknown as { _nodes: Map<string, { klass: { importJSON: (value: never) => LexicalNode } }> })._nodes;
-  const entry = registered?.get(serialized.type);
-  if (!entry?.klass.importJSON) throw new Error(`Lexical node type "${serialized.type}" is not registered`);
-  const node = entry.klass.importJSON(serialized as never);
-  const children = (serialized as unknown as { children?: SerializedLexicalNode[] }).children;
-  if (children && "append" in node) {
-    const parent = node as unknown as { append: (...nodes: LexicalNode[]) => void };
-    parent.append(...children.map((child) => nodeForSerialized(editor, child)));
-  }
-  return node;
+function nodeForSerialized(serialized: SerializedLexicalNode): LexicalNode {
+  return $parseSerializedNode(serialized);
 }
 
-function patchText(current: LexicalNode, incoming: SerializedLexicalNode): void {
-  if ($isTextNode(current) && incoming.type === "text") {
-    const text = (incoming as unknown as { text?: string }).text ?? "";
-    const delta = spliceString(current.getTextContent(), text);
-    if (delta.deleteCount || delta.insertText) current.spliceText(delta.index, delta.deleteCount, delta.insertText);
+function applySerialized(current: LexicalNode, serialized: SerializedLexicalNode): void {
+  if (current.getType() !== serialized.type) {
+    current.replace(nodeForSerialized(serialized));
     return;
   }
-  const incomingChildren = (incoming as unknown as { children?: SerializedLexicalNode[] }).children;
-  if (!incomingChildren) return;
-  const currentChildren = (current as ElementNode).getChildren();
-  if (currentChildren.length !== incomingChildren.length) return;
-  currentChildren.forEach((child, index) => patchText(child, incomingChildren[index]));
+  const next = current.updateFromJSON(serialized);
+  if (!$isElementNode(next)) return;
+  const incoming = serializedChildren(serialized);
+  if (!incoming) return;
+  const children = next.getChildren();
+  const sameShape = children.length === incoming.length && children.every((child, index) => child.getType() === incoming[index]?.type);
+  if (sameShape) {
+    children.forEach((child, index) => applySerialized(child, incoming[index]));
+    return;
+  }
+  next.splice(0, next.getChildrenSize(), incoming.map((child) => nodeForSerialized(child)));
 }
 
 function restoreSelection(editor: LexicalEditor, snapshot: SelectionSnapshot | null): void {
@@ -108,7 +110,11 @@ function restoreSelection(editor: LexicalEditor, snapshot: SelectionSnapshot | n
   $setSelection(selection);
 }
 
-export function reconcileEditorState(editor: LexicalEditor, incoming: SerializedEditorState): void {
+export function blockIdForKey(editor: LexicalEditor, key: string): string | undefined {
+  return editorBlockIds(editor).get(key);
+}
+
+export function reconcileEditorState(editor: LexicalEditor, incoming: SerializedEditorState, remoteTag = AUTOMERGE_SYNC_TAG): void {
   const normalized = ensureStableBlockIds(incoming);
   let selection: SelectionSnapshot | null = null;
   editor.getEditorState().read(() => { selection = snapshotSelection(editor); });
@@ -116,7 +122,6 @@ export function reconcileEditorState(editor: LexicalEditor, incoming: Serialized
     const root = $getRoot();
     const current = root.getChildren();
     const ids = editorBlockIds(editor);
-    const byId = new Map(current.map((node) => [ids.get(node.getKey()), node]));
     const desired = normalized.root.children;
     current.forEach((node, index) => {
       if (!ids.has(node.getKey()) && desired[index]) {
@@ -130,18 +135,19 @@ export function reconcileEditorState(editor: LexicalEditor, incoming: Serialized
     for (let i = 0; i < delta.deleteCount; i++) current[delta.index + i]?.remove();
     const nodes = root.getChildren();
     for (let i = delta.index; i < delta.index + delta.insert.length; i++) {
-      const node = nodeForSerialized(editor, desired[i] as SerializedLexicalNode);
+      const node = nodeForSerialized(desired[i] as SerializedLexicalNode);
       ids.set(node.getKey(), (desired[i] as Record<string, unknown>)[BLOCK_ID_FIELD] as string);
       const before = nodes[i - 1];
       if (before) before.insertAfter(node); else root.append(node);
     }
     desired.forEach((serialized, index) => {
-      const old = byId.get((serialized as Record<string, unknown>)[BLOCK_ID_FIELD] as string);
       const next = root.getChildren()[index];
-      if (old && next && old.getType() === next.getType()) patchText(next, serialized);
+      if (next) applySerialized(next, serialized);
     });
     root.setDirection(normalized.root.direction);
+    root.setFormat(elementFormat(normalized.root.format));
+    root.setIndent(normalized.root.indent);
     root.getChildren().forEach((node, index) => ids.set(node.getKey(), (desired[index] as Record<string, unknown>)[BLOCK_ID_FIELD] as string));
     restoreSelection(editor, selection);
-  }, { tag: AUTOMERGE_SYNC_TAG, discrete: true });
+  }, { tag: remoteTag, discrete: true });
 }
